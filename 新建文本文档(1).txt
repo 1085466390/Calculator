@@ -1,0 +1,607 @@
+package calculator;
+
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.util.*;
+
+import javax.swing.JButton;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
+import javax.swing.JTextField;
+
+
+//Calculator类，继承JFrame框架，实现事件监听器接口
+public class Calculator extends JFrame implements ActionListener {
+    // 枚举类型
+    private enum ButtonType {
+        FUNC, OP, NUM, LB, RB, EQUAL
+    }
+
+    private enum KeyID {
+        MC, MR, MS, MPlus, MMinus, AC,
+        Sin, Cos, Tan, Log, Ln, Mod,
+        Power10, Pi, LB, RB, Back, Div,
+        Sqr, E, N7, N8, N9, Mul,
+        Cube, Sqrt, N4, N5, N6, Sub,
+        Power, Fac, N1, N2, N3, Add,
+        Rec, Abs, Negative, N0, Point, Equal
+    }
+
+    // 按键类
+    private static class CalButton extends JButton {
+        private final String name;
+        private final KeyID id;
+        private final ButtonType type;
+
+        public CalButton(String name, KeyID id, ButtonType type) {
+            super("CalButton");
+            this.name = name;
+            this.id = id;
+            this.type = type;
+        }
+
+        public String getName() {
+            return this.name;
+        }
+
+        public KeyID getId() {
+            return this.id;
+        }
+
+        public ButtonType getType() {
+            return this.type;
+        }
+    }
+
+    // 运算符类
+    private static class Operator {
+        private final String name;
+        private final int priority;
+        private final int opTargetNum;
+
+        public Operator(String name, int priority, int opTargetNum) {
+            this.name = name;
+            this.priority = priority;
+            this.opTargetNum = opTargetNum;
+        }
+
+        public String getName() {
+            return this.name;
+        }
+
+        public int getPriority() {
+            return this.priority;
+        }
+
+        public int getOpTargetNum() {
+            return this.opTargetNum;
+        }
+    }
+
+    // 按键映射哈希表
+    private final HashMap<KeyID, Operator> opKeyMap = new HashMap<KeyID, Operator>() {
+        {
+            // 单目运算符
+            put(KeyID.Sin, new Operator("sin", 1, 1));
+            put(KeyID.Cos, new Operator("cos", 1, 1));
+            put(KeyID.Tan, new Operator("tan", 1, 1));
+            put(KeyID.Log, new Operator("log", 1, 1));
+            put(KeyID.Ln, new Operator("ln", 1, 1));
+            put(KeyID.Power10, new Operator("10^", 1, 1));
+            put(KeyID.Sqr, new Operator("^2", 1, 1));
+            put(KeyID.Cube, new Operator("^3", 1, 1));
+            put(KeyID.Sqrt, new Operator("√", 1, 1));
+            put(KeyID.Fac, new Operator("fac", 1, 1));
+            put(KeyID.Rec, new Operator("rec", 1, 1));
+            put(KeyID.Abs, new Operator("abs", 1, 1));
+            // 双目运算符
+            put(KeyID.Div, new Operator("/", 2, 2));
+            put(KeyID.Mul, new Operator("×", 2, 2));
+            put(KeyID.Sub, new Operator("-", 1, 2));
+            put(KeyID.Add, new Operator("+", 1, 2));
+            put(KeyID.Mod, new Operator("Mod", 2, 2));
+            put(KeyID.Power, new Operator("^", 3, 2));
+        }
+    };
+
+    // 私有变量
+    private final JTextField exprText = new JTextField("Show expression here!");// 显示表达式的文本框
+    private final JTextField resultText = new JTextField("0");// 显示当前结果的文本框
+    private final JTextArea historyText = new JTextArea("");// 显示历史记录的文本框
+    private Double memory = (double) 0;// 计算器记忆区
+    private boolean hasMemory = false;// 记忆区是否激活
+    private final Stack<Double> numStack = new Stack<>();// 数字栈
+    private final Stack<KeyID> opStack = new Stack<>();// 符号栈
+    private boolean isInitial = true;
+    private boolean isResultTextUsed = false;
+    private boolean isExprTextNeedRefresh = true;
+    private boolean isPointInputted = false;
+    private boolean isSpecialNum = false;
+
+    // 构造方法
+    public Calculator() {
+        super("Calculator");// “超”关键字，表示调用父类的构造函数，
+        this.setLayout(null);
+        // 表达式框布局
+        exprText.setBounds(20, 18, 393, 40);// 设置文本框大小
+        exprText.setHorizontalAlignment(JTextField.RIGHT);// 文字右对齐
+        exprText.setEditable(false);// 文本框不允许修改结果
+        exprText.setFocusable(false);
+        exprText.setForeground(Color.GRAY);
+        exprText.setFont(new Font("Consolas", Font.ITALIC, 20));
+        this.add(exprText);// 新建文本框，该语句会添加进去一个新的JTextArea导致带有滚动条的文本无法显示或者发生覆盖
+        // 运算结果框布局
+        resultText.setBounds(20, 56, 393, 75);// 设置文本框大小
+        resultText.setHorizontalAlignment(JTextField.RIGHT);// 文字右对齐
+        resultText.setEditable(false);// 文本框不允许修改结果
+        resultText.setSelectedTextColor(Color.RED);
+        resultText.setFont(new Font("Consolas", Font.BOLD, 40));
+        this.add(resultText);// 新建文本框，该语句会添加进去一个新的JTextArea导致带有滚动条的文本无法显示或者发生覆盖
+        // 历史记录框布局
+        JLabel historyLabel = new JLabel("历史记录");// “历史记录”标签
+        historyLabel.setBounds(450, 15, 100, 20);// 设置标签位置及大小
+        this.add(historyLabel);
+        historyText.setBounds(450, 40, 250, 420);// 设置历史记录文本框大小
+        historyText.setAlignmentX(LEFT_ALIGNMENT);// 文本框内容右对齐
+        historyText.setEditable(false);// 文本框不允许修改结果
+        historyText.setLineWrap(true);// 自动换行
+        historyText.setWrapStyleWord(true);
+        historyText.setSelectedTextColor(Color.blue);
+        historyText.setFont(new Font("Consolas", Font.ITALIC, 18));
+        // 给历史记录文本域新建一个垂直滚动滑条
+        JScrollPane jHistoryScrollPanel = new JScrollPane(historyText);
+        jHistoryScrollPanel.setBounds(450, 40, 250, 420);// 设置历史记录面板窗口位置及大小
+        jHistoryScrollPanel.setViewportView(historyText);
+        jHistoryScrollPanel.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);// 设置让垂直滚动条一直显示
+        this.add(jHistoryScrollPanel);// 将面板添加到总窗体中
+        // 放置按钮
+        int x = 20, y = 150;
+        String[] keyNames = {
+                "MC", "MR", "MS", "M+", "M-", "AC",
+                "sin", "cos", "tan", "log", "ln", "mod",
+                "10^X", "π", "(", ")", "←", "÷",
+                "x²", "e", "7", "8", "9", "x",
+                "x³", "√", "4", "5", "6", "-",
+                "x^y", "n!", "1", "2", "3", "+",
+                "1/x", "|x|", "±", "0", ".", "="
+        };
+        KeyID[] keyIDs = {
+                KeyID.MC, KeyID.MR, KeyID.MS, KeyID.MPlus, KeyID.MMinus, KeyID.AC,
+                KeyID.Sin, KeyID.Cos, KeyID.Tan, KeyID.Log, KeyID.Ln, KeyID.Mod,
+                KeyID.Power10, KeyID.Pi, KeyID.LB, KeyID.RB, KeyID.Back, KeyID.Div,
+                KeyID.Sqr, KeyID.E, KeyID.N7, KeyID.N8, KeyID.N9, KeyID.Mul,
+                KeyID.Cube, KeyID.Sqrt, KeyID.N4, KeyID.N5, KeyID.N6, KeyID.Sub,
+                KeyID.Power, KeyID.Fac, KeyID.N1, KeyID.N2, KeyID.N3, KeyID.Add,
+                KeyID.Rec, KeyID.Abs, KeyID.Negative, KeyID.N0, KeyID.Point, KeyID.Equal
+        };
+        ButtonType[] keyTypes = {
+                ButtonType.FUNC, ButtonType.FUNC, ButtonType.FUNC, ButtonType.FUNC, ButtonType.FUNC, ButtonType.FUNC,
+                ButtonType.OP, ButtonType.OP, ButtonType.OP, ButtonType.OP, ButtonType.OP, ButtonType.OP,
+                ButtonType.OP, ButtonType.FUNC, ButtonType.LB, ButtonType.RB, ButtonType.FUNC, ButtonType.OP,
+                ButtonType.OP, ButtonType.FUNC, ButtonType.NUM, ButtonType.NUM, ButtonType.NUM, ButtonType.OP,
+                ButtonType.OP, ButtonType.OP, ButtonType.NUM, ButtonType.NUM, ButtonType.NUM, ButtonType.OP,
+                ButtonType.OP, ButtonType.OP, ButtonType.NUM, ButtonType.NUM, ButtonType.NUM, ButtonType.OP,
+                ButtonType.OP, ButtonType.OP, ButtonType.FUNC, ButtonType.NUM, ButtonType.NUM, ButtonType.EQUAL
+        };
+        for (int i = 0; i < keyNames.length; i++) {
+            CalButton calButton = new CalButton(keyNames[i], keyIDs[i], keyTypes[i]);
+            calButton.setText(keyNames[i]);
+            calButton.setBounds(x, y, 65, 45);// 宽65，高45
+            calButton.addActionListener(this);// 监听Action
+            if (x < 315) {
+                x += 65;
+            } else {
+                x = 20;
+                y += 45;
+            }
+            this.add(calButton);
+        }
+        this.setResizable(false);
+        this.setBounds(500, 200, 750, 530);// 整个面板的位置大小
+        this.setDefaultCloseOperation(EXIT_ON_CLOSE);
+        this.setVisible(true);
+    }
+
+    // 事件处理
+    public void actionPerformed(ActionEvent e) {
+        // historyText.setText(b);//使输入的表达式显示在历史记录文本框中
+        CalButton curBtn = (CalButton) e.getSource();// 获得事件源的标签
+        System.out.println(curBtn.getName() + " " + curBtn.getId() + " " + curBtn.getType());
+        switch (curBtn.getType()) {
+            case FUNC:
+                handleFunc(curBtn.getId());
+                break;
+            case OP:
+                handleOp(curBtn.getId());
+                break;
+            case NUM:
+                handleNum(curBtn.getId());
+                break;
+            case LB:
+                handleLB();
+                break;
+            case RB:
+                handleRB();
+                break;
+            case EQUAL:
+                handleEqual();
+                break;
+            default:
+                break;
+        }
+    }
+
+    // 处理功能类按键
+    private void handleFunc(KeyID id) {
+        switch (id) {
+            case MC:
+                memory = (double) 0;
+                hasMemory = false;
+                break;
+            case MR:
+                if (hasMemory) {
+                    resultText.setText(DoubleToString(memory));
+                    isResultTextUsed = false;
+                    isSpecialNum = true;
+                }
+                break;
+            case MS:
+                memory = new Double(resultText.getText());
+                hasMemory = true;
+                break;
+            case MPlus:
+                if (hasMemory)
+                    memory += new Double(resultText.getText());
+                break;
+            case MMinus:
+                if (hasMemory)
+                    memory -= new Double(resultText.getText());
+                break;
+            case AC:
+                resultText.setText("0");
+                exprText.setText("Show expression here!");
+                numStack.clear();
+                opStack.clear();
+                isInitial = true;
+                isResultTextUsed = false;
+                isExprTextNeedRefresh = true;
+                isPointInputted = false;
+                isSpecialNum = false;
+                break;
+            case Pi:
+                resultText.setText("3.14159265359");
+                isResultTextUsed = false;
+                isSpecialNum = true;
+                break;
+            case E:
+                resultText.setText("2.71828182846");
+                isResultTextUsed = false;
+                isSpecialNum = true;
+                break;
+            case Back:
+                if (!isSpecialNum) {
+                    if (resultText.getText().length() == 1) {
+                        resultText.setText("0");
+                        isInitial = true;
+                    } else {
+                        resultText.setText(resultText.getText().substring(0, resultText.getText().length() - 1));
+                    }
+                }
+                break;
+            case Negative:
+                Double curNum = new Double(resultText.getText());
+                resultText.setText(DoubleToString(-curNum));
+                break;
+            default:
+                break;
+        }
+    }
+
+    // 处理运算符类按键
+    private void handleOp(KeyID id) {
+        // 如有必要，清除exprText内容
+        if (isExprTextNeedRefresh) {
+            exprText.setText("");
+            isExprTextNeedRefresh = false;
+        }
+
+        // 数字压入数字栈
+        Double curNum = new Double(resultText.getText());
+        if (!isResultTextUsed || isInitial) {
+            numStack.push(curNum);
+            exprText.setText(exprText.getText() + DoubleToString(curNum));
+            isResultTextUsed = true;
+            if (isInitial) {
+                isInitial = false;
+            }
+        }
+
+        // 获取当前符号
+        Operator curOp = opKeyMap.get(id);
+        // 操作
+        if (curOp.getOpTargetNum() == 1) {
+            // 单目操作立即完成
+            Double num1 = numStack.pop();
+            numStack.push(calc(id, num1));
+            int lastOperatorIndex = findLastOperator(exprText.getText());
+            if (lastOperatorIndex != -1) {
+                String rareString = exprText.getText().substring(lastOperatorIndex + 1);
+                exprText.setText(exprText.getText().substring(0, lastOperatorIndex + 1) + buildExpr(id, rareString));
+            } else {
+                exprText.setText(buildExpr(id, exprText.getText()));
+            }
+            resultText.setText(DoubleToString(numStack.peek()));
+        } else {
+            // 双目操作优先级比较
+            exprText.setText(exprText.getText() + curOp.getName());
+            int curPriority = curOp.getPriority();
+            if (opStack.empty() || opStack.peek() == KeyID.LB) {
+                // 栈空或栈顶为左括号，直接插入
+                opStack.push(id);
+            } else if (curPriority > opKeyMap.get(opStack.peek()).getPriority()) {
+                // 比栈顶优先级高，直接插入
+                opStack.push(id);
+            } else if (curPriority <= opKeyMap.get(opStack.peek()).getPriority()) {
+                // 比栈顶优先级低或相等，先逐个出栈计算直到栈顶优先级小于当前运算符，最后插入
+                while ((!opStack.empty())
+                        && opStack.peek() != KeyID.LB
+                        && curPriority >= opKeyMap.get(opStack.peek()).getPriority()) {
+                    KeyID preId = opStack.pop();
+                    Double num2 = numStack.pop();
+                    Double num1 = numStack.pop();
+                    numStack.push(calc(preId, num1, num2));
+                }
+                opStack.push(id);
+                resultText.setText(DoubleToString(numStack.peek()));
+            }
+        }
+    }
+
+    // 处理数字类按键
+    private void handleNum(KeyID id) {
+        if (isInitial || isResultTextUsed || isSpecialNum) {
+            resultText.setText("");
+            isResultTextUsed = false;
+            isPointInputted = false;
+            if (isInitial) {
+                isInitial = false;
+            }
+            isSpecialNum = false;
+
+        }
+        if (isExprTextNeedRefresh) {
+            exprText.setText("");
+            isExprTextNeedRefresh = false;
+        }
+        switch (id) {
+            case N0:
+                resultText.setText(resultText.getText() + "0");
+                break;
+            case N1:
+                resultText.setText(resultText.getText() + "1");
+                break;
+            case N2:
+                resultText.setText(resultText.getText() + "2");
+                break;
+            case N3:
+                resultText.setText(resultText.getText() + "3");
+                break;
+            case N4:
+                resultText.setText(resultText.getText() + "4");
+                break;
+            case N5:
+                resultText.setText(resultText.getText() + "5");
+                break;
+            case N6:
+                resultText.setText(resultText.getText() + "6");
+                break;
+            case N7:
+                resultText.setText(resultText.getText() + "7");
+                break;
+            case N8:
+                resultText.setText(resultText.getText() + "8");
+                break;
+            case N9:
+                resultText.setText(resultText.getText() + "9");
+                break;
+            case Point:
+                if (!isPointInputted) {
+                    resultText.setText(resultText.getText() + ".");
+                    isPointInputted = true;
+                }
+                break;
+        }
+    }
+
+    // 处理左括号
+    private void handleLB() {
+        if (isExprTextNeedRefresh) {
+            exprText.setText("");
+            isExprTextNeedRefresh = false;
+        }
+        exprText.setText(exprText.getText() + "(");
+        opStack.push(KeyID.LB);
+    }
+
+    // 处理右括号
+    private void handleRB() {
+        // 数字压入数字栈
+        if (!isResultTextUsed) {
+            Double curNum = new Double(resultText.getText());
+            numStack.push(curNum);
+            exprText.setText(exprText.getText() + DoubleToString(curNum));
+            isResultTextUsed = true;
+        }
+        // 操作
+        KeyID preId;
+        while ((!opStack.empty()) && (preId = opStack.pop()) != KeyID.LB) {
+            Double num2 = numStack.pop();
+            Double num1 = numStack.pop();
+            numStack.push(calc(preId, num1, num2));
+        }
+        exprText.setText(exprText.getText() + ")");
+        resultText.setText(DoubleToString(numStack.peek()));
+    }
+
+    // 处理等号
+    private void handleEqual() {
+        // 数字压入数字栈
+        if (!isResultTextUsed && !isInitial) {
+            Double curNum = new Double(resultText.getText());
+            numStack.push(curNum);
+            exprText.setText(exprText.getText() + DoubleToString(curNum));
+            isResultTextUsed = true;
+        }
+        // 操作
+        while (!opStack.empty()) {
+            KeyID preId = opStack.pop();
+            if (preId == KeyID.LB) {
+                exprText.setText(exprText.getText() + ")");
+                continue;
+            }
+            Double num2 = numStack.pop();
+            Double num1 = numStack.pop();
+            numStack.push(calc(preId, num1, num2));
+        }
+        if (!numStack.empty()) {
+            exprText.setText(exprText.getText() + "=");
+            resultText.setText(DoubleToString(numStack.peek()));
+        }
+        historyText.setText(historyText.getText() + exprText.getText() + resultText.getText() + "\n");
+        // 清空栈
+        numStack.clear();
+        opStack.clear();
+        // 计算器恢复初始状态
+        isInitial = true;
+        isExprTextNeedRefresh = true;
+        isPointInputted = false;
+        isSpecialNum = false;
+    }
+
+    // 单目运算
+    private Double calc(KeyID id, Double num1) {
+        switch (id) {
+            case Sin:
+                return Math.sin(num1 / 180 * Math.PI);
+            case Cos:
+                return Math.cos(num1 / 180 * Math.PI);
+            case Tan:
+                return Math.tan(num1 / 180 * Math.PI);
+            case Log:
+                return Math.log10(num1);
+            case Ln:
+                return Math.log(num1);
+            case Power10:
+                return Math.pow(10, num1);
+            case Sqr:
+                return Math.pow(num1, 2);
+            case Cube:
+                return Math.pow(num1, 3);
+            case Sqrt:
+                return Math.sqrt(num1);
+            case Fac:
+                return fac(num1.intValue());
+            case Rec:
+                if (Math.abs(num1) < 1e-10) {
+                    System.out.println("除数为0，不计算");
+                    return 0.0;
+                } else {
+                    return 1 / num1;
+                }
+            case Abs:
+                return Math.abs(num1);
+            default:
+                return 0.0;
+        }
+    }
+
+    // 双目运算
+    private Double calc(KeyID id, Double num1, Double num2) {
+        switch (id) {
+            case Div:
+                if (Math.abs(num2) < 1e-10) {
+                    System.out.println("除数为0，不计算");
+                    return 0.0;
+                } else {
+                    return num1 / num2;
+                }
+            case Mul:
+                return num1 * num2;
+            case Sub:
+                return num1 - num2;
+            case Add:
+                return num1 + num2;
+            case Mod:
+                return num1 % num2;
+            case Power:
+                return Math.pow(num1, num2);
+            default:
+                return 0.0;
+        }
+    }
+
+    // 构建单目运算表达式
+    private String buildExpr(KeyID id, String s) {
+        switch (id) {
+            case Sin:
+                return "sin(" + s + ")";
+            case Cos:
+                return "cos(" + s + ")";
+            case Tan:
+                return "tan(" + s + ")";
+            case Log:
+                return "log(" + s + ")";
+            case Ln:
+                return "ln(" + s + ")";
+            case Power10:
+                return "10^(" + s + ")";
+            case Sqr:
+                return "sqr(" + s + ")";
+            case Cube:
+                return "cube(" + s + ")";
+            case Sqrt:
+                return "√(" + s + ")";
+            case Fac:
+                return "(" + s + ")!";
+            case Rec:
+                return "1/(" + s + ")";
+            case Abs:
+                return "abs(" + s + ")";
+            default:
+                return "";
+        }
+    }
+
+    // 计算阶乘
+    public double fac(double number) {
+        if (number <= 1)
+            return 1;
+        else
+            return number * fac(number - 1);
+    }
+
+    // 将Double类型转为字符串（省略末尾的0，若近似为整数则输出整数，精度为1e-20）
+    private String DoubleToString(Double d) {
+        if (d.intValue() - d < 1e-20) {
+            return String.valueOf(d.intValue());
+        } else {
+            return String.valueOf(d);
+        }
+    }
+
+    // 找到字符串最末尾的一个运算符的下标
+    private int findLastOperator(String s) {
+        return Math.max(
+                Math.max(s.lastIndexOf('+'), s.lastIndexOf('-')),
+                Math.max(s.lastIndexOf('×'), s.lastIndexOf('/'))
+        );
+    }
+
+    // 主函数
+    public static void main(String[] args) {
+        new Calculator();
+    }
+}
